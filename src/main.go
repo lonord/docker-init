@@ -30,14 +30,15 @@ func main() {
 		return
 	}
 	startCommand := os.Args[1]
-	stopCommand := os.Args[1]
+	stopCommand := os.Args[2]
 
+	printMsg("STARTING")
 	err := execCmd(startCommand)
 	if err != nil {
 		log.Fatal(err)
 	}
 	handleChildProcess()
-	fmt.Println("> START FINISHED")
+	printMsg("START FINISHED")
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c)
@@ -52,15 +53,10 @@ func main() {
 			case syscall.SIGQUIT:
 				fallthrough
 			case syscall.SIGTERM:
-				err := execCmd(stopCommand)
-				if err != nil {
-					log.Fatal(err)
-				}
-				handleChildProcess()
-				fmt.Println("> STOP FINISHED")
-				os.Exit(0)
+				printMsg(fmt.Sprint("GOT SIGNAL [", sig.String(), "] STOPPING"))
+				go handleStop(stopCommand)
 			case syscall.SIGCHLD:
-				handleChildProcess()
+				go handleChildProcess()
 			}
 		}
 	}
@@ -98,12 +94,28 @@ func pipeReader(reader *bufio.Reader) {
 
 func handleChildProcess() {
 	for {
-		if result := C.checkpid(); result <= 0 {
+		result := C.checkpid()
+		if result <= 0 {
 			break
 		}
+		printMsg(fmt.Sprint("REAP ZOMBIE CHILD [", result, "]"))
 	}
+}
+
+func handleStop(stopCommand string) {
+	err := execCmd(stopCommand)
+	if err != nil {
+		log.Fatal(err)
+	}
+	handleChildProcess()
+	printMsg("STOP FINISHED")
+	os.Exit(0)
 }
 
 func printUsage() {
 	fmt.Println("Usage: docker-init <start command> <stop command>")
+}
+
+func printMsg(msg string) {
+	fmt.Println("\x1B[32m>> ", msg, " <<\x1B[0m")
 }
