@@ -32,19 +32,14 @@ func main() {
 	startCommand := os.Args[1]
 	stopCommand := os.Args[2]
 
-	printMsg("STARTING")
-	err := execCmd(startCommand)
-	if err != nil {
-		log.Fatal(err)
-	}
-	handleChildProcess()
-	printMsg("START FINISHED")
+	startCommandChan := make(chan int)
+	go execStart(startCommandChan, startCommand)
 
-	c := make(chan os.Signal, 1)
-	signal.Notify(c)
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan)
 	for {
 		select {
-		case sig := <-c:
+		case sig := <-signalChan:
 			switch sig {
 			case syscall.SIGHUP:
 				fallthrough
@@ -54,6 +49,7 @@ func main() {
 				fallthrough
 			case syscall.SIGTERM:
 				printMsg(fmt.Sprint("GOT SIGNAL [", sig.String(), "] STOPPING"))
+				go killStartCommand(startCommandChan)
 				go handleStop(stopCommand)
 			case syscall.SIGCHLD:
 				go handleChildProcess()
@@ -62,24 +58,41 @@ func main() {
 	}
 }
 
-func execCmd(cmdStr string) error {
+func killStartCommand(startCommandChan chan int) {
+	startCommandChan <- 1
+}
+
+func execStart(startCommandChan chan int, startCommand string) {
+	printMsg("STARTING")
+	cmd, err := execCmd(startCommand)
+	if err != nil {
+		log.Fatal(err)
+	}
+	select {
+	case <-startCommandChan:
+		if cmd != nil {
+			cmd.Process.Kill()
+		}
+	}
+}
+
+func execCmd(cmdStr string) (*exec.Cmd, error) {
 	cmd := exec.Command("/bin/bash", "-c", cmdStr)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	go pipeReader(bufio.NewReader(stdout))
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return err
+		return nil, err
 	}
+	go pipeReader(bufio.NewReader(stdout))
 	go pipeReader(bufio.NewReader(stderr))
 	err = cmd.Start()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	cmd.Wait()
-	return nil
+	return cmd, nil
 }
 
 func pipeReader(reader *bufio.Reader) {
@@ -103,9 +116,12 @@ func handleChildProcess() {
 }
 
 func handleStop(stopCommand string) {
-	err := execCmd(stopCommand)
+	cmd, err := execCmd(stopCommand)
 	if err != nil {
 		log.Fatal(err)
+	}
+	if cmd != nil {
+		cmd.Wait()
 	}
 	handleChildProcess()
 	printMsg("STOP FINISHED")
