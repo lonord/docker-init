@@ -3,7 +3,7 @@ GOCMD=go
 GOBUILD=$(GOCMD) build
 GOCLEAN=$(GOCMD) clean
 GOGET=$(GOCMD) get
-BINARY_DIR=bin
+BINARY_DIR=bin/$(PLATFORM)/$(ARCH)
 SRC_DIR=src
 BINARY_NAME=docker-init
 
